@@ -31,6 +31,18 @@
     txt += "\n🕒 " + when;
     tgSend(txt, keepalive);
   }
+  // Alerte de TEST : verifie le rond + Telegram + lecture modele/client, SANS envoyer de message au client.
+  function sendTest() {
+    flash("TEST", cfg.op || "test");
+    const when = new Date().toLocaleString();
+    const txt = "🧪 <b>TEST Anti-Ban</b>\n" +
+      "👨‍💻 Chatteur : <b>" + esc(cfg.op || "?") + "</b>\n" +
+      "🎭 Modele : <b>" + esc(currentModel() || "(non lu)") + "</b>\n" +
+      "👤 Client : <b>" + esc(currentClient() || "(non lu)") + "</b>\n" +
+      "✅ Si tu recois ce message, la surveillance fonctionne.\n🕒 " + when;
+    tgSend(txt, false);
+    if (statusEl) setStatus("🧪 Test envoye — verifie Telegram");
+  }
   function sendTelegram(word, client, message, model, operator, severity) {
     const when = new Date().toLocaleString();
     let txt = severity === "critique"
@@ -316,6 +328,7 @@
       '<div style="margin-bottom:2px">🎭 Modele : <b data-model></b></div>' +
       '<div style="margin-bottom:2px">👤 Client : <b data-client></b></div>' +
       '<div style="margin-bottom:6px">💬 Zone chat : <b data-chat></b></div>' +
+      '<button data-test style="width:100%;margin:2px 0 6px;padding:5px;border:0;border-radius:6px;background:#0891b2;color:#fff;cursor:pointer;font-weight:600">🧪 Tester mon alerte</button>' +
       '<div data-admin style="display:none;border-top:1px solid #334155;padding-top:8px;margin-top:4px">' +
         '<div style="font-size:11px;color:#f59e0b;font-weight:700;margin-bottom:6px">⚙️ MODE ADMIN</div>' +
         '<button data-pz style="' + btn + 'background:#166534">📍 Pointer la zone de chat</button>' +
@@ -385,6 +398,7 @@
     panel.querySelector("[data-pm]").addEventListener("click", () => startPick("model"));
     panel.querySelector("[data-pc]").addEventListener("click", () => startPick("client"));
     panel.querySelector("[data-pz]").addEventListener("click", () => startPick("chat"));
+    panel.querySelector("[data-test]").addEventListener("click", () => sendTest());
     panel.querySelector("[data-pub]").addEventListener("click", () => publishConfig());
     // 5 clics sur le titre => bascule le mode admin (pour toi uniquement)
     let clicks = 0, clickT = null;
