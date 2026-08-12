@@ -287,7 +287,7 @@
   function refreshPanel() {
     if (!panel) return;
     const on = panel.querySelector("[data-op-name]");
-    if (on) on.textContent = cfg.op || currentAccount() || "(detection...)";
+    if (on) on.textContent = cfg.op || "(non connecte)";
     panel.querySelector("[data-model]").textContent = currentModel() || "(non configure)";
     panel.querySelector("[data-client]").textContent = currentClient() || "(non configure)";
     const cz = panel.querySelector("[data-chat]");
@@ -311,7 +311,7 @@
         '<span data-title style="font-weight:700;user-select:none;flex:1">🛡️ Anti-Ban</span>' +
         '<span data-min title="Reduire" style="cursor:pointer;user-select:none;color:#94a3b8;font-weight:700;padding:0 6px;font-size:16px;line-height:1">–</span>' +
       '</div>' +
-      '<div style="margin-bottom:2px">👨‍💻 Compte : <b data-op-name>…</b></div>' +
+      '<div style="margin-bottom:2px">👨‍💻 Toi : <b data-op-name style="cursor:pointer;text-decoration:underline dotted" title="Cliquer pour corriger ton prenom">…</b></div>' +
       '<div data-presence style="font-size:11px;color:#22c55e;margin-bottom:8px;min-height:14px"></div>' +
       '<div style="margin-bottom:2px">🎭 Modele : <b data-model></b></div>' +
       '<div style="margin-bottom:2px">👤 Client : <b data-client></b></div>' +
@@ -319,7 +319,6 @@
       '<div data-admin style="display:none;border-top:1px solid #334155;padding-top:8px;margin-top:4px">' +
         '<div style="font-size:11px;color:#f59e0b;font-weight:700;margin-bottom:6px">⚙️ MODE ADMIN</div>' +
         '<button data-pz style="' + btn + 'background:#166534">📍 Pointer la zone de chat</button>' +
-        '<button data-pa style="' + btn + 'background:#7c3aed">📍 Pointer le compte (nom Inflow)</button>' +
         '<button data-pm style="' + btn + 'background:#334155">📍 Pointer le modele</button>' +
         '<button data-pc style="' + btn + 'background:#334155">📍 Pointer le client</button>' +
         '<button data-pub style="' + btn + 'background:#2563eb">📋 Copier la config (pour l\'admin)</button>' +
@@ -327,6 +326,12 @@
       '<div data-status style="font-size:11px;color:#94a3b8;min-height:14px"></div>';
     (document.body || document.documentElement).appendChild(panel);
     statusEl = panel.querySelector("[data-status]");
+    // Clic sur le prenom -> le corriger (fautes de frappe, changement de personne)
+    panel.querySelector("[data-op-name]").addEventListener("click", function () {
+      cfg.op = ""; window.__cblConnected = false;
+      const pr = panel.querySelector("[data-presence]"); if (pr) pr.textContent = "";
+      askName();
+    });
 
     // ---- Reduire / restaurer (petite pastille) ----
     const mini = document.createElement("div");
@@ -379,7 +384,6 @@
 
     panel.querySelector("[data-pm]").addEventListener("click", () => startPick("model"));
     panel.querySelector("[data-pc]").addEventListener("click", () => startPick("client"));
-    panel.querySelector("[data-pa]").addEventListener("click", () => startPick("account"));
     panel.querySelector("[data-pz]").addEventListener("click", () => startPick("chat"));
     panel.querySelector("[data-pub]").addEventListener("click", () => publishConfig());
     // 5 clics sur le titre => bascule le mode admin (pour toi uniquement)
@@ -477,7 +481,7 @@
     ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:2147483647;display:flex;align-items:center;justify-content:center";
     ov.innerHTML = '<div style="background:#0f172a;color:#e2e8f0;padding:24px;border-radius:12px;width:320px;font:14px system-ui,Arial;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.6)">' +
       '<div style="font-size:18px;font-weight:800;margin-bottom:6px">🛡️ Anti-Ban</div>' +
-      '<div style="margin-bottom:12px;color:#94a3b8">Compte non detecte. Entre ton prenom :</div>' +
+      '<div style="margin-bottom:12px;color:#94a3b8">Bienvenue ! Entre ton prenom (une seule fois) :</div>' +
       '<input data-nm type="text" placeholder="ton prenom" style="width:100%;box-sizing:border-box;padding:9px;border-radius:8px;border:1px solid #334155;background:#0b1220;color:#fff;font-size:15px">' +
       '<button data-ok style="margin-top:14px;width:100%;padding:9px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Valider</button>' +
       '</div>';
@@ -496,19 +500,10 @@
     inp.addEventListener("keydown", function (e) { if (e.key === "Enter") done(); });
   }
 
-  // ---- Demarrage : lecture AUTOMATIQUE du nom du compte Inflow ----
-  // Chaque chatteur est sur son propre compte -> identite fiable, sans code.
-  // On reessaie quelques fois le temps qu'Inflow charge son interface.
+  // ---- Demarrage : le chatteur saisit son prenom UNE fois (memorise sur ce PC) ----
   function startGate() {
-    let tries = 0;
-    (function attempt() {
-      if (window.__cblAuthed) return;
-      const acc = currentAccount();
-      if (acc) { cfg.op = acc; startSurveillance(); return; }
-      tries++;
-      if (tries < 20) { setTimeout(attempt, 2000); return; } // ~40 s d'essais
-      askName(); // compte illisible (selecteur non configure) -> repli prenom, une fois
-    })();
+    if (cfg.op) { startSurveillance(); return; } // deja saisi -> demarre direct
+    askName();                                    // premier lancement -> demande le prenom
   }
   startGate();
 
