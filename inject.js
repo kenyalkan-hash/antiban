@@ -134,6 +134,7 @@
         // Selecteurs configures par l'admin -> appliques a tous (le chatteur ne pointe pas)
         if (typeof rec.modelSel === "string" && rec.modelSel) cfg.modelSel = rec.modelSel;
         if (typeof rec.clientSel === "string" && rec.clientSel) cfg.clientSel = rec.clientSel;
+        if (typeof rec.accountSel === "string" && rec.accountSel) cfg.accountSel = rec.accountSel;
         if (typeof rec.chatSel === "string" && rec.chatSel && rec.chatSel !== cfg.chatSel) {
           cfg.chatSel = rec.chatSel;
           attachObserver();
@@ -145,7 +146,7 @@
   // Clients en lecture seule : on ne publie pas ici. On copie les selecteurs
   // pour que l'admin les colle dans son tableau de bord (admin.html).
   function publishConfig() {
-    const cfgJson = JSON.stringify({ chatSel: cfg.chatSel, modelSel: cfg.modelSel, clientSel: cfg.clientSel });
+    const cfgJson = JSON.stringify({ chatSel: cfg.chatSel, modelSel: cfg.modelSel, clientSel: cfg.clientSel, accountSel: cfg.accountSel });
     try {
       navigator.clipboard.writeText(cfgJson).then(
         () => setStatus("📋 Config copiee ! Colle-la dans l'admin."),
@@ -203,6 +204,8 @@
     set modelSel(v) { try { localStorage.setItem("cbl_model_sel", v); } catch (e) {} },
     get clientSel() { try { return localStorage.getItem("cbl_client_sel") || ""; } catch (e) { return ""; } },
     set clientSel(v) { try { localStorage.setItem("cbl_client_sel", v); } catch (e) {} },
+    get accountSel() { try { return localStorage.getItem("cbl_account_sel") || ""; } catch (e) { return ""; } },
+    set accountSel(v) { try { localStorage.setItem("cbl_account_sel", v); } catch (e) {} },
     get chatSel() { try { return localStorage.getItem("cbl_chat_sel") || ""; } catch (e) { return ""; } },
     set chatSel(v) { try { localStorage.setItem("cbl_chat_sel", v); } catch (e) {} },
     get admin() { try { return localStorage.getItem("cbl_admin") || ""; } catch (e) { return ""; } },
@@ -215,6 +218,7 @@
   }
   const currentModel = () => readSel(cfg.modelSel);
   const currentClient = () => readSel(cfg.clientSel);
+  const currentAccount = () => readSel(cfg.accountSel); // nom du compte Inflow = identite du chatteur
   function currentChatRoot() {
     if (cfg.chatSel) { try { const el = document.querySelector(cfg.chatSel); if (el) return el; } catch (e) {} }
     return document.body;
@@ -257,7 +261,7 @@
   function startPick(kind) {
     picking = kind;
     document.body.style.cursor = "crosshair";
-    const label = kind === "model" ? "nom du MODELE" : kind === "client" ? "nom du CLIENT" : "la ZONE DE CHAT (clique sur un message)";
+    const label = kind === "model" ? "nom du MODELE" : kind === "client" ? "nom du CLIENT" : kind === "account" ? "le NOM DU COMPTE Inflow (en haut / profil)" : "la ZONE DE CHAT (clique sur un message)";
     setStatus("👉 Clique sur " + label + "...");
   }
   document.addEventListener("click", function (e) {
@@ -268,11 +272,12 @@
     const sel = cssPath(target);
     if (picking === "model") cfg.modelSel = sel;
     else if (picking === "client") cfg.clientSel = sel;
+    else if (picking === "account") cfg.accountSel = sel;
     else if (picking === "chat") { cfg.chatSel = sel; attachObserver(); }
     const kind = picking; picking = null;
     document.body.style.cursor = "";
     refreshPanel();
-    const lbl = kind === "model" ? "Modele" : kind === "client" ? "Client" : "Zone de chat";
+    const lbl = kind === "model" ? "Modele" : kind === "client" ? "Client" : kind === "account" ? "Compte" : "Zone de chat";
     setStatus("✅ " + lbl + " OK");
   }, true);
 
@@ -281,6 +286,8 @@
   function setStatus(m) { if (statusEl) statusEl.textContent = m; }
   function refreshPanel() {
     if (!panel) return;
+    const on = panel.querySelector("[data-op-name]");
+    if (on) on.textContent = cfg.op || currentAccount() || "(detection...)";
     panel.querySelector("[data-model]").textContent = currentModel() || "(non configure)";
     panel.querySelector("[data-client]").textContent = currentClient() || "(non configure)";
     const cz = panel.querySelector("[data-chat]");
@@ -299,9 +306,12 @@
     panel.style.cssText = "position:fixed;top:58px;right:16px;z-index:2147483646;background:#0f172a;color:#e2e8f0;font:12px/1.4 system-ui,Arial;border:1px solid #334155;border-radius:10px;padding:10px;width:215px;box-shadow:0 6px 18px rgba(0,0,0,.5)";
     const btn = "width:100%;margin-bottom:6px;padding:5px;border:0;border-radius:6px;color:#fff;cursor:pointer;";
     panel.innerHTML =
-      '<div data-title style="font-weight:700;margin-bottom:6px;user-select:none">🛡️ Anti-Ban</div>' +
-      '<div style="margin-bottom:2px">👨‍💻 Ton prenom :</div>' +
-      '<input data-op type="text" placeholder="prenom du chatteur" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:5px;border-radius:6px;border:1px solid #334155;background:#0b1220;color:#e2e8f0">' +
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">' +
+        '<span data-grip title="Deplacer" style="cursor:move;user-select:none;color:#64748b;font-size:14px">✥</span>' +
+        '<span data-title style="font-weight:700;user-select:none;flex:1">🛡️ Anti-Ban</span>' +
+        '<span data-min title="Reduire" style="cursor:pointer;user-select:none;color:#94a3b8;font-weight:700;padding:0 6px;font-size:16px;line-height:1">–</span>' +
+      '</div>' +
+      '<div style="margin-bottom:2px">👨‍💻 Compte : <b data-op-name>…</b></div>' +
       '<div data-presence style="font-size:11px;color:#22c55e;margin-bottom:8px;min-height:14px"></div>' +
       '<div style="margin-bottom:2px">🎭 Modele : <b data-model></b></div>' +
       '<div style="margin-bottom:2px">👤 Client : <b data-client></b></div>' +
@@ -309,6 +319,7 @@
       '<div data-admin style="display:none;border-top:1px solid #334155;padding-top:8px;margin-top:4px">' +
         '<div style="font-size:11px;color:#f59e0b;font-weight:700;margin-bottom:6px">⚙️ MODE ADMIN</div>' +
         '<button data-pz style="' + btn + 'background:#166534">📍 Pointer la zone de chat</button>' +
+        '<button data-pa style="' + btn + 'background:#7c3aed">📍 Pointer le compte (nom Inflow)</button>' +
         '<button data-pm style="' + btn + 'background:#334155">📍 Pointer le modele</button>' +
         '<button data-pc style="' + btn + 'background:#334155">📍 Pointer le client</button>' +
         '<button data-pub style="' + btn + 'background:#2563eb">📋 Copier la config (pour l\'admin)</button>' +
@@ -316,11 +327,59 @@
       '<div data-status style="font-size:11px;color:#94a3b8;min-height:14px"></div>';
     (document.body || document.documentElement).appendChild(panel);
     statusEl = panel.querySelector("[data-status]");
-    const opInput = panel.querySelector("[data-op]");
-    opInput.value = cfg.op;
-    opInput.addEventListener("input", () => { cfg.op = opInput.value.trim(); });
+
+    // ---- Reduire / restaurer (petite pastille) ----
+    const mini = document.createElement("div");
+    mini.textContent = "🛡️";
+    mini.title = "Anti-Ban — clique pour ouvrir";
+    mini.style.cssText = "position:fixed;top:16px;right:16px;z-index:2147483646;width:34px;height:34px;border-radius:50%;background:#0f172a;border:1px solid #334155;display:none;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.5);font-size:16px";
+    (document.body || document.documentElement).appendChild(mini);
+    function setMin(v) {
+      try { localStorage.setItem("cbl_panel_min", v ? "1" : ""); } catch (e) {}
+      panel.style.display = v ? "none" : "block";
+      mini.style.display = v ? "flex" : "none";
+    }
+    panel.querySelector("[data-min]").addEventListener("click", (e) => { e.stopPropagation(); setMin(true); });
+    mini.addEventListener("click", () => setMin(false));
+
+    // ---- Position memorisee + deplacement par la poignee ----
+    try {
+      const pos = JSON.parse(localStorage.getItem("cbl_panel_pos") || "null");
+      if (pos && typeof pos.top === "number" && typeof pos.left === "number") {
+        panel.style.top = pos.top + "px"; panel.style.left = pos.left + "px"; panel.style.right = "auto";
+      }
+    } catch (e) {}
+    (function () {
+      const grip = panel.querySelector("[data-grip]");
+      let sx = 0, sy = 0, ox = 0, oy = 0, dragging = false;
+      function onMove(e) {
+        if (!dragging) return;
+        const nx = ox + (e.clientX - sx), ny = oy + (e.clientY - sy);
+        const maxX = Math.max(0, window.innerWidth - panel.offsetWidth);
+        const maxY = Math.max(0, window.innerHeight - panel.offsetHeight);
+        panel.style.left = Math.min(Math.max(0, nx), maxX) + "px";
+        panel.style.top = Math.min(Math.max(0, ny), maxY) + "px";
+        panel.style.right = "auto";
+      }
+      function onUp() {
+        if (!dragging) return;
+        dragging = false;
+        document.removeEventListener("mousemove", onMove, true);
+        document.removeEventListener("mouseup", onUp, true);
+        try { localStorage.setItem("cbl_panel_pos", JSON.stringify({ top: parseInt(panel.style.top, 10) || 0, left: parseInt(panel.style.left, 10) || 0 })); } catch (e) {}
+      }
+      grip.addEventListener("mousedown", function (e) {
+        e.preventDefault(); e.stopPropagation();
+        const r = panel.getBoundingClientRect();
+        ox = r.left; oy = r.top; sx = e.clientX; sy = e.clientY; dragging = true;
+        document.addEventListener("mousemove", onMove, true);
+        document.addEventListener("mouseup", onUp, true);
+      });
+    })();
+
     panel.querySelector("[data-pm]").addEventListener("click", () => startPick("model"));
     panel.querySelector("[data-pc]").addEventListener("click", () => startPick("client"));
+    panel.querySelector("[data-pa]").addEventListener("click", () => startPick("account"));
     panel.querySelector("[data-pz]").addEventListener("click", () => startPick("chat"));
     panel.querySelector("[data-pub]").addEventListener("click", () => publishConfig());
     // 5 clics sur le titre => bascule le mode admin (pour toi uniquement)
@@ -334,10 +393,12 @@
     });
     applyAdmin();
     refreshPanel();
+    try { if (localStorage.getItem("cbl_panel_min")) setMin(true); } catch (e) {}
     setInterval(refreshPanel, 3000);
   }
 
   function check(text, node) {
+    if (!window.__cblAuthed) return; // surveillance BLOQUEE tant que le chatteur n'est pas connecte
     if (!text) return;
     const t = text.trim();
     if (!t || t.length > 500) return; // ignore les gros blocs (rechargements d'UI) -> moins de faux positifs
@@ -382,10 +443,16 @@
     });
     obs.observe(root, { childList: true, subtree: true });
   }
-  attachObserver();
   buildPanel();
   syncRemote();
   setInterval(syncRemote, 5 * 60 * 1000); // toutes les 5 min
+  // La detection ne demarre qu'APRES connexion (identite verifiee par code).
+  function startSurveillance() {
+    window.__cblAuthed = true;
+    attachObserver();
+    markConnected();
+    refreshPanel();
+  }
 
   // ---- Presence : connexion (1 fois) + deconnexion (fermeture) ----
   function markConnected() {
@@ -401,16 +468,16 @@
     });
   }
 
-  // ---- Fenetre de prenom au premier lancement ----
+  // ---- Repli si le compte Inflow est illisible : simple prenom (une seule fois) ----
   function askName() {
-    if (cfg.op) { markConnected(); return; }
+    if (cfg.op) { startSurveillance(); return; }
     if (document.getElementById("cbl-name-modal")) return;
     const ov = document.createElement("div");
     ov.id = "cbl-name-modal";
     ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:2147483647;display:flex;align-items:center;justify-content:center";
-    ov.innerHTML = '<div style="background:#0f172a;color:#e2e8f0;padding:24px;border-radius:12px;width:300px;font:14px system-ui,Arial;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.6)">' +
+    ov.innerHTML = '<div style="background:#0f172a;color:#e2e8f0;padding:24px;border-radius:12px;width:320px;font:14px system-ui,Arial;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.6)">' +
       '<div style="font-size:18px;font-weight:800;margin-bottom:6px">🛡️ Anti-Ban</div>' +
-      '<div style="margin-bottom:12px;color:#94a3b8">Bienvenue ! Entre ton prenom :</div>' +
+      '<div style="margin-bottom:12px;color:#94a3b8">Compte non detecte. Entre ton prenom :</div>' +
       '<input data-nm type="text" placeholder="ton prenom" style="width:100%;box-sizing:border-box;padding:9px;border-radius:8px;border:1px solid #334155;background:#0b1220;color:#fff;font-size:15px">' +
       '<button data-ok style="margin-top:14px;width:100%;padding:9px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Valider</button>' +
       '</div>';
@@ -421,14 +488,29 @@
       const v = inp.value.trim();
       if (!v) return;
       cfg.op = v;
-      if (panel) { const oi = panel.querySelector("[data-op]"); if (oi) oi.value = v; }
+      if (panel) { const on = panel.querySelector("[data-op-name]"); if (on) on.textContent = v; }
       ov.remove();
-      markConnected();
+      startSurveillance();
     }
     ov.querySelector("[data-ok]").addEventListener("click", done);
     inp.addEventListener("keydown", function (e) { if (e.key === "Enter") done(); });
   }
-  askName();
+
+  // ---- Demarrage : lecture AUTOMATIQUE du nom du compte Inflow ----
+  // Chaque chatteur est sur son propre compte -> identite fiable, sans code.
+  // On reessaie quelques fois le temps qu'Inflow charge son interface.
+  function startGate() {
+    let tries = 0;
+    (function attempt() {
+      if (window.__cblAuthed) return;
+      const acc = currentAccount();
+      if (acc) { cfg.op = acc; startSurveillance(); return; }
+      tries++;
+      if (tries < 20) { setTimeout(attempt, 2000); return; } // ~40 s d'essais
+      askName(); // compte illisible (selecteur non configure) -> repli prenom, une fois
+    })();
+  }
+  startGate();
 
   window.CBL = {
     stop() { if (obs) obs.disconnect(); if (dot) dot.remove(); if (panel) panel.remove(); console.log("[BLACKLIST] arrete."); },
