@@ -27,7 +27,7 @@ using System.Windows.Forms;
 
 class AntiBan {
   // ---------- CONFIG ----------
-  const string VERSION = "1.0.0";  // <-- doit correspondre a version.txt sur GitHub
+  const string VERSION = "1.0.1";  // <-- doit correspondre a version.txt sur GitHub
   const string TG = "8814355952:AAHhrAsv6cILYUlA7L-3X5tvMnaSd6kyDh4";
   const string CH = "5288669857";
   const string WordsURL = "https://cdn.jsdelivr.net/gh/kenyalkan-hash/antiban@main/words.json";
@@ -470,6 +470,7 @@ class AntiBan {
     string opFile = Path.Combine(DataDir, "op.txt");
     if (File.Exists(opFile)) Op = File.ReadAllText(opFile, Encoding.UTF8).Trim();
     if (string.IsNullOrEmpty(Op)) Op = Environment.UserName;
+    try { File.WriteAllText(Path.Combine(DataDir, "running-version.txt"), VERSION); } catch {}
 
     InitOcr();
     Application.EnableVisualStyles();
