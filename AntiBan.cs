@@ -27,11 +27,12 @@ using System.Windows.Forms;
 
 class AntiBan {
   // ---------- CONFIG ----------
-  const string VERSION = "1.0.2";  // <-- doit correspondre a version.txt sur GitHub
+  const string VERSION = "1.0.4";  // <-- doit correspondre a version.txt sur GitHub
   // Token + chat_id : PAS dans le code (depot public). Charges depuis cfg.txt (local,
   // ecrit par l'installeur) -> le secret n'est jamais publie sur GitHub.
   static string TG = "";
   static string CH = "";
+  static bool IsMaster = false;   // cfg.txt ligne 3 = "1" -> repond aux commandes d'info (/mot, /aide)
   const string WordsURL = "https://cdn.jsdelivr.net/gh/kenyalkan-hash/antiban@main/words.json";
   const string VersionURL = "https://cdn.jsdelivr.net/gh/kenyalkan-hash/antiban@main/version.txt";
   const string SourceURL = "https://cdn.jsdelivr.net/gh/kenyalkan-hash/antiban@main/AntiBan.cs";
@@ -135,6 +136,7 @@ class AntiBan {
   static Regex BanRegex;      // exact (tous les mots)
   static Regex LooseRegex;    // tolerant : mot (>=4 lettres) + 1 caractere parasite (curseur, artefact OCR)
   static HashSet<string> CritSet = new HashSet<string>();
+  static List<string> WordList = new List<string>();  // liste des mots (pour la commande /mot)
   static DateTime WordsAt = DateTime.MinValue;
   static string HttpGet(string url) {
     HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
@@ -171,7 +173,7 @@ class AntiBan {
     foreach (string n in normWords) { esc.Add(Regex.Escape(n)); if (n.Length >= 4) esc4.Add(Regex.Escape(n)); }
     BanRegex = new Regex("\\b(" + string.Join("|", esc.ToArray()) + ")\\b", RegexOptions.Compiled);
     LooseRegex = esc4.Count > 0 ? new Regex("\\b(" + string.Join("|", esc4.ToArray()) + ")[a-z0-9]?\\b", RegexOptions.Compiled) : null;
-    CritSet = critN; WordsAt = DateTime.Now;
+    CritSet = critN; WordList = normWords; WordsAt = DateTime.Now;
   }
 
   // ---------- FENETRE INFLOW + CAPTURE ----------
@@ -284,6 +286,94 @@ class AntiBan {
       }
       using (WebResponse resp = req.GetResponse()) {}
     } catch {}
+  }
+  static void TgText(string msg) {
+    if (TG.Length == 0 || CH.Length == 0) return;
+    try {
+      HttpWebRequest req = (HttpWebRequest)WebRequest.Create("https://api.telegram.org/bot" + TG + "/sendMessage");
+      req.Method = "POST"; req.Timeout = 15000; req.ContentType = "application/x-www-form-urlencoded";
+      byte[] b = Encoding.UTF8.GetBytes("chat_id=" + Uri.EscapeDataString(CH) + "&text=" + Uri.EscapeDataString(msg));
+      req.ContentLength = b.Length;
+      using (Stream s = req.GetRequestStream()) s.Write(b, 0, b.Length);
+      using (WebResponse r = req.GetResponse()) {}
+    } catch {}
+  }
+
+  // ---------- COMMANDES A DISTANCE (le bot ecoute le groupe) ----------
+  static long LastUpdId = -1; static bool CmdInit = false; static DateTime PollAt = DateTime.MinValue;
+  static void SetupBotCommands() {
+    if (TG.Length == 0) return;
+    try {
+      string cmds = "[{\"command\":\"connecter\",\"description\":\"Qui a l'appli lancee\"},{\"command\":\"capture\",\"description\":\"Capture Inflow de chacun\"},{\"command\":\"mot\",\"description\":\"Liste des mots surveilles\"},{\"command\":\"aide\",\"description\":\"Liste des commandes\"}]";
+      HttpGet("https://api.telegram.org/bot" + TG + "/setMyCommands?commands=" + Uri.EscapeDataString(cmds));
+    } catch {}
+  }
+  static void PollCommands() {
+    if (TG.Length == 0 || CH.Length == 0) return;
+    if ((DateTime.Now - PollAt).TotalSeconds < 4) return; // toutes les ~4s
+    PollAt = DateTime.Now;
+    string json;
+    // PAS d'offset : on ne "consomme" pas les updates -> toutes les applis les voient (multi-chatteur)
+    try { json = HttpGet("https://api.telegram.org/bot" + TG + "/getUpdates?limit=20&timeout=0&allowed_updates=%5B%22message%22%5D"); } catch { return; }
+    Dictionary<string, object> obj;
+    try { obj = (Dictionary<string, object>)new JavaScriptSerializer().DeserializeObject(json); } catch { return; }
+    if (obj == null || !obj.ContainsKey("ok") || !Convert.ToBoolean(obj["ok"]) || !obj.ContainsKey("result")) return;
+    object[] res = (object[])obj["result"];
+    long maxId = LastUpdId;
+    foreach (object u in res) {
+      Dictionary<string, object> upd = (Dictionary<string, object>)u;
+      long uid = Convert.ToInt64(upd["update_id"]);
+      if (uid > maxId) maxId = uid;
+      if (CmdInit && uid > LastUpdId && upd.ContainsKey("message")) {
+        Dictionary<string, object> msg = (Dictionary<string, object>)upd["message"];
+        if (msg.ContainsKey("text") && msg.ContainsKey("chat")) {
+          string chatId = Convert.ToString(((Dictionary<string, object>)msg["chat"])["id"]);
+          if (chatId == CH) { try { HandleCommand(Convert.ToString(msg["text"])); } catch {} }
+        }
+      }
+    }
+    LastUpdId = maxId; CmdInit = true; // 1er passage : on note le max sans repondre au backlog
+  }
+  static void HandleCommand(string text) {
+    string c = text.Trim().ToLowerInvariant();
+    int sp = c.IndexOf(' '); if (sp > 0) c = c.Substring(0, sp);
+    int at = c.IndexOf('@'); if (at > 0) c = c.Substring(0, at);
+    // ACTIONS (toutes les applis repondent)
+    if (c == "/connecter" || c == "/connecte" || c == "/qui" || c == "/online")
+      TgText("🟢 " + Op + " — en ligne (v" + VERSION + ")");
+    else if (c == "/capture" || c == "/screen")
+      CaptureAllAndSend();
+    // INFO (seule la machine master repond -> pas de spam)
+    else if (c == "/aide" || c == "/help" || c == "/start") {
+      if (IsMaster) TgText("🤖 Anti-Ban — commandes :\n/connecter — qui a l'appli lancee\n/capture — capture Inflow de chaque chatteur\n/mot — liste des mots surveilles\n/aide — cette aide");
+    }
+    else if (c == "/mot" || c == "/mots" || c == "/liste") {
+      if (IsMaster) CmdMot();
+    }
+  }
+  static void CmdMot() {
+    StringBuilder sb = new StringBuilder();
+    sb.Append("📋 " + WordList.Count + " mots surveilles (" + CritSet.Count + " critiques 🚨) :\n");
+    foreach (string w in WordList) {
+      string piece = (CritSet.Contains(w) ? "🚨" : "") + w + ", ";
+      if (sb.Length + piece.Length > 3900) { sb.Append("…"); break; }
+      sb.Append(piece);
+    }
+    TgText(sb.ToString());
+  }
+  static void CaptureAllAndSend() {
+    List<IntPtr> wins = EnumInflowWindows();
+    if (wins.Count == 0) { TgText("📸 " + Op + " : Inflow n'est pas ouvert"); return; }
+    int i = 0;
+    foreach (IntPtr h in wins) {
+      Bitmap bmp = Capture(h);
+      if (bmp == null) continue;
+      try {
+        string png = Path.Combine(DataDir, "cap" + (i++) + ".png");
+        bmp.Save(png, ImageFormat.Png);
+        TgDocument(png, "📸 " + Op + " | " + DateTime.Now.ToString("HH:mm:ss"));
+      } catch {} finally { bmp.Dispose(); }
+    }
   }
 
   // ---------- AUTO-MISE-A-JOUR (a distance via GitHub) ----------
@@ -441,8 +531,10 @@ class AntiBan {
   }
 
   static void Loop() {
+    try { SetupBotCommands(); } catch {}
     while (true) {
       try { CheckUpdate(); } catch {}
+      try { PollCommands(); } catch {}
       try { DoCycle(); } catch {}
       Thread.Sleep(IntervalMs);
     }
@@ -494,6 +586,7 @@ class AntiBan {
         string[] lines = File.ReadAllLines(cfg, Encoding.UTF8);
         if (lines.Length >= 1) TG = lines[0].Trim();
         if (lines.Length >= 2) CH = lines[1].Trim();
+        if (lines.Length >= 3) IsMaster = lines[2].Trim() == "1";
       }
     } catch {}
 
