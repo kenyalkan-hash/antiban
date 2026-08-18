@@ -27,9 +27,11 @@ using System.Windows.Forms;
 
 class AntiBan {
   // ---------- CONFIG ----------
-  const string VERSION = "1.0.1";  // <-- doit correspondre a version.txt sur GitHub
-  const string TG = "8814355952:AAHhrAsv6cILYUlA7L-3X5tvMnaSd6kyDh4";
-  const string CH = "5288669857";
+  const string VERSION = "1.0.2";  // <-- doit correspondre a version.txt sur GitHub
+  // Token + chat_id : PAS dans le code (depot public). Charges depuis cfg.txt (local,
+  // ecrit par l'installeur) -> le secret n'est jamais publie sur GitHub.
+  static string TG = "";
+  static string CH = "";
   const string WordsURL = "https://cdn.jsdelivr.net/gh/kenyalkan-hash/antiban@main/words.json";
   const string VersionURL = "https://cdn.jsdelivr.net/gh/kenyalkan-hash/antiban@main/version.txt";
   const string SourceURL = "https://cdn.jsdelivr.net/gh/kenyalkan-hash/antiban@main/AntiBan.cs";
@@ -262,6 +264,7 @@ class AntiBan {
 
   // ---------- TELEGRAM ----------
   static void TgDocument(string pngPath, string caption) {
+    if (TG.Length == 0 || CH.Length == 0) return; // pas de config -> rien a envoyer
     try {
       string url = "https://api.telegram.org/bot" + TG + "/sendDocument";
       string boundary = "----AntiBan" + DateTime.Now.Ticks.ToString("x");
@@ -291,13 +294,26 @@ class AntiBan {
     if (File.Exists(b)) return b;
     return null;
   }
+  static bool IsNewer(string remote, string local) {
+    try {
+      string[] a = remote.Split('.'); string[] b = local.Split('.');
+      int n = Math.Max(a.Length, b.Length);
+      for (int i = 0; i < n; i++) {
+        int ai = i < a.Length ? int.Parse(a[i].Trim()) : 0;
+        int bi = i < b.Length ? int.Parse(b[i].Trim()) : 0;
+        if (ai != bi) return ai > bi;
+      }
+      return false;
+    } catch { return false; }
+  }
   static DateTime UpdAt = DateTime.MinValue;
   static void CheckUpdate() {
     if ((DateTime.Now - UpdAt).TotalSeconds < 1800) return; // au plus toutes les 30 min
     UpdAt = DateTime.Now;
     string remote;
     try { remote = HttpGet(VersionURL).Trim(); } catch { return; }
-    if (string.IsNullOrEmpty(remote) || remote.Length > 20 || remote == VERSION) return;
+    // ne met a jour QUE si la version en ligne est STRICTEMENT plus recente (jamais de retrograde)
+    if (string.IsNullOrEmpty(remote) || remote.Length > 20 || !IsNewer(remote, VERSION)) return;
     // deja tente cette version ? (evite toute boucle)
     string stamp = Path.Combine(DataDir, "lastupdate.txt");
     try { if (File.Exists(stamp) && File.ReadAllText(stamp).Trim() == remote) return; } catch {}
@@ -471,6 +487,15 @@ class AntiBan {
     if (File.Exists(opFile)) Op = File.ReadAllText(opFile, Encoding.UTF8).Trim();
     if (string.IsNullOrEmpty(Op)) Op = Environment.UserName;
     try { File.WriteAllText(Path.Combine(DataDir, "running-version.txt"), VERSION); } catch {}
+    // token + chat_id depuis cfg.txt (ligne 1 = token, ligne 2 = chat_id)
+    try {
+      string cfg = Path.Combine(DataDir, "cfg.txt");
+      if (File.Exists(cfg)) {
+        string[] lines = File.ReadAllLines(cfg, Encoding.UTF8);
+        if (lines.Length >= 1) TG = lines[0].Trim();
+        if (lines.Length >= 2) CH = lines[1].Trim();
+      }
+    } catch {}
 
     InitOcr();
     Application.EnableVisualStyles();
