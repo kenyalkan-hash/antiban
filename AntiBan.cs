@@ -27,7 +27,7 @@ using System.Windows.Forms;
 
 class AntiBan {
   // ---------- CONFIG ----------
-  const string VERSION = "1.0.6";  // <-- doit correspondre a version.txt sur GitHub
+  const string VERSION = "1.0.7";  // <-- doit correspondre a version.txt sur GitHub
   // Token + chat_id : PAS dans le code (depot public). Charges depuis cfg.txt (local,
   // ecrit par l'installeur) -> le secret n'est jamais publie sur GitHub.
   static string TG = "";
@@ -313,36 +313,45 @@ class AntiBan {
       HttpGet("https://api.telegram.org/bot" + TG + "/setMyCommands?commands=" + Uri.EscapeDataString(cmds));
     } catch {}
   }
+  static double PollEvery = 0;
   static void PollCommands() {
     if (TG.Length == 0 || CH.Length == 0) return;
-    if ((DateTime.Now - PollAt).TotalSeconds < 4) return; // toutes les ~4s
+    // intervalle decale par machine (4-8s) -> reduit les collisions quand plusieurs chatteurs interrogent le bot
+    if (PollEvery == 0) PollEvery = 4.0 + (Math.Abs((Op == null ? "x" : Op).GetHashCode()) % 4000) / 1000.0;
+    if ((DateTime.Now - PollAt).TotalSeconds < PollEvery) return;
     PollAt = DateTime.Now;
     string json;
-    // PAS d'offset : on ne "consomme" pas les updates -> toutes les applis les voient (multi-chatteur)
+    // PAS d'offset : les updates persistent -> toutes les applis les voient (multi-chatteur).
+    // Un conflit 409 (autre lecteur au meme instant) fait juste sauter ce tour : on reessaie, rien n'est perdu.
     try { json = HttpGet("https://api.telegram.org/bot" + TG + "/getUpdates?limit=100&timeout=0&allowed_updates=%5B%22message%22%5D"); } catch { return; }
     Dictionary<string, object> obj;
     try { obj = (Dictionary<string, object>)new JavaScriptSerializer().DeserializeObject(json); } catch { return; }
     if (obj == null || !obj.ContainsKey("ok") || !Convert.ToBoolean(obj["ok"]) || !obj.ContainsKey("result")) return;
     object[] res = (object[])obj["result"];
-    long maxId = LastUpdId;
+    long maxId = LastUpdId, drainUpTo = -1;
+    long nowUnix = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
     foreach (object u in res) {
       Dictionary<string, object> upd = (Dictionary<string, object>)u;
       long uid = Convert.ToInt64(upd["update_id"]);
       if (uid > maxId) maxId = uid;
-      if (CmdInit && uid > LastUpdId && upd.ContainsKey("message")) {
-        Dictionary<string, object> msg = (Dictionary<string, object>)upd["message"];
-        if (msg.ContainsKey("text") && msg.ContainsKey("chat")) {
-          string chatId = Convert.ToString(((Dictionary<string, object>)msg["chat"])["id"]);
-          if (chatId == CH) { try { HandleCommand(Convert.ToString(msg["text"])); } catch {} }
-        }
+      if (!upd.ContainsKey("message")) continue;
+      Dictionary<string, object> msg = (Dictionary<string, object>)upd["message"];
+      // master : repere les updates anciennes (>90s) a purger pour borner le backlog
+      if (IsMaster && msg.ContainsKey("date")) { long dt = Convert.ToInt64(msg["date"]); if (nowUnix - dt > 90 && uid > drainUpTo) drainUpTo = uid; }
+      if (CmdInit && uid > LastUpdId && msg.ContainsKey("text") && msg.ContainsKey("chat")) {
+        string chatId = Convert.ToString(((Dictionary<string, object>)msg["chat"])["id"]);
+        if (chatId == CH) { try { HandleCommand(Convert.ToString(msg["text"])); } catch {} }
       }
     }
     LastUpdId = maxId; CmdInit = true; // 1er passage : on note le max sans repondre au backlog
+    // master : purge les vieilles updates (les autres machines ont eu >90s pour les lire)
+    if (IsMaster && drainUpTo >= 0) { try { HttpGet("https://api.telegram.org/bot" + TG + "/getUpdates?offset=" + (drainUpTo + 1) + "&limit=1"); } catch {} }
   }
   static void HandleCommand(string text) {
     string c = text.Trim().ToLowerInvariant();
     int sp = c.IndexOf(' '); if (sp > 0) c = c.Substring(0, sp);
     int at = c.IndexOf('@'); if (at > 0) c = c.Substring(0, at);
+    try { File.AppendAllText(Path.Combine(DataDir, "cmd-debug.txt"), DateTime.Now.ToString("HH:mm:ss") + " HANDLE [" + c + "] master=" + IsMaster + " words=" + WordList.Count + "\r\n"); } catch {}
     // ACTIONS (toutes les applis repondent)
     if (c == "/connecter" || c == "/connecte" || c == "/qui" || c == "/online")
       TgText("🟢 " + Op + " — en ligne (v" + VERSION + ")");
