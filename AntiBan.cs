@@ -27,7 +27,7 @@ using System.Windows.Forms;
 
 class AntiBan {
   // ---------- CONFIG ----------
-  const string VERSION = "1.0.7";  // <-- doit correspondre a version.txt sur GitHub
+  const string VERSION = "1.0.8";  // <-- doit correspondre a version.txt sur GitHub
   // Token + chat_id : PAS dans le code (depot public). Charges depuis cfg.txt (local,
   // ecrit par l'installeur) -> le secret n'est jamais publie sur GitHub.
   static string TG = "";
@@ -142,6 +142,8 @@ class AntiBan {
   static Regex LooseRegex;    // tolerant : mot (>=4 lettres) + 1 caractere parasite (curseur, artefact OCR)
   static HashSet<string> CritSet = new HashSet<string>();
   static List<string> WordList = new List<string>();  // liste des mots (pour la commande /mot)
+  static bool Paused = false;                          // /pause  /reprendre
+  static DateTime LastDetectAt = DateTime.MinValue;    // derniere alerte (pour /stats)
   static DateTime WordsAt = DateTime.MinValue;
   static string HttpGet(string url) {
     HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
@@ -309,7 +311,7 @@ class AntiBan {
   static void SetupBotCommands() {
     if (TG.Length == 0) return;
     try {
-      string cmds = "[{\"command\":\"connecter\",\"description\":\"Qui a l'appli lancee\"},{\"command\":\"capture\",\"description\":\"Capture Inflow de chacun\"},{\"command\":\"mot\",\"description\":\"Liste des mots surveilles\"},{\"command\":\"aide\",\"description\":\"Liste des commandes\"}]";
+      string cmds = "[{\"command\":\"connecter\",\"description\":\"Qui a l'appli lancee\"},{\"command\":\"stats\",\"description\":\"Etat detaille de chacun\"},{\"command\":\"capture\",\"description\":\"Capture Inflow (tous ou un prenom)\"},{\"command\":\"message\",\"description\":\"Popup sur l'ecran d'un chatteur\"},{\"command\":\"pause\",\"description\":\"Couper la surveillance\"},{\"command\":\"reprendre\",\"description\":\"Relancer la surveillance\"},{\"command\":\"mot\",\"description\":\"Liste des mots surveilles\"},{\"command\":\"aide\",\"description\":\"Liste des commandes\"}]";
       HttpGet("https://api.telegram.org/bot" + TG + "/setMyCommands?commands=" + Uri.EscapeDataString(cmds));
     } catch {}
   }
@@ -348,22 +350,65 @@ class AntiBan {
     if (IsMaster && drainUpTo >= 0) { try { HttpGet("https://api.telegram.org/bot" + TG + "/getUpdates?offset=" + (drainUpTo + 1) + "&limit=1"); } catch {} }
   }
   static void HandleCommand(string text) {
-    string c = text.Trim().ToLowerInvariant();
-    int sp = c.IndexOf(' '); if (sp > 0) c = c.Substring(0, sp);
+    string t = text.Trim();
+    string c = t, args = "";
+    int sp = t.IndexOf(' ');
+    if (sp > 0) { c = t.Substring(0, sp); args = t.Substring(sp + 1).Trim(); }
+    c = c.ToLowerInvariant();
     int at = c.IndexOf('@'); if (at > 0) c = c.Substring(0, at);
-    try { File.AppendAllText(Path.Combine(DataDir, "cmd-debug.txt"), DateTime.Now.ToString("HH:mm:ss") + " HANDLE [" + c + "] master=" + IsMaster + " words=" + WordList.Count + "\r\n"); } catch {}
-    // ACTIONS (toutes les applis repondent)
+    try { File.AppendAllText(Path.Combine(DataDir, "cmd-debug.txt"), DateTime.Now.ToString("HH:mm:ss") + " HANDLE [" + c + "] args=" + args + " master=" + IsMaster + "\r\n"); } catch {}
+    string me = (Op == null ? "" : Op).Trim().ToLowerInvariant();
+
+    // --- ACTIONS (les applis concernees repondent) ---
     if (c == "/connecter" || c == "/connecte" || c == "/qui" || c == "/online")
       TgText("🟢 " + Op + " — en ligne (v" + VERSION + ")");
-    else if (c == "/capture" || c == "/screen")
-      CaptureAllAndSend();
-    // INFO (seule la machine master repond -> pas de spam)
+    else if (c == "/capture" || c == "/screen") {
+      // /capture -> tous ; /capture prenom -> seulement ce chatteur
+      if (args.Length == 0 || args.ToLowerInvariant() == me) CaptureAllAndSend();
+    }
+    else if (c == "/message" || c == "/msg") {
+      // /message prenom texte -> popup sur l'ecran de ce chatteur
+      int s2 = args.IndexOf(' ');
+      if (s2 > 0) {
+        string who = args.Substring(0, s2).Trim().ToLowerInvariant();
+        string body = args.Substring(s2 + 1).Trim();
+        if (who == me) { ShowPopup(body); TgText("✅ Message affiche chez " + Op); }
+      }
+    }
+    else if (c == "/pause") { Paused = true; SetShieldPaused(); if (IsMaster) TgText("⏸ Surveillance en PAUSE (toutes les machines)"); }
+    else if (c == "/reprendre" || c == "/resume") { Paused = false; if (IsMaster) TgText("▶️ Surveillance REPRISE (toutes les machines)"); }
+    else if (c == "/stats") {
+      string inflow = EnumInflowWindows().Count > 0 ? "Inflow ouvert" : "Inflow ferme";
+      string last = LastDetectAt == DateTime.MinValue ? "aucune" : LastDetectAt.ToString("HH:mm");
+      TgText("📊 " + Op + " | v" + VERSION + " | " + inflow + (Paused ? " | ⏸PAUSE" : "") + " | derniere alerte: " + last);
+    }
+    // --- INFO (seule la machine master repond -> pas de spam) ---
     else if (c == "/aide" || c == "/help" || c == "/start") {
-      if (IsMaster) TgText("🤖 Anti-Ban — commandes :\n/connecter — qui a l'appli lancee\n/capture — capture Inflow de chaque chatteur\n/mot — liste des mots surveilles\n/aide — cette aide");
+      if (IsMaster) TgText("🤖 Anti-Ban — commandes :\n/connecter — qui est en ligne\n/stats — etat detaille de chacun\n/capture [prenom] — capture Inflow (tous, ou 1 chatteur)\n/message prenom texte — popup sur l'ecran d'un chatteur\n/pause  /reprendre — couper / relancer la surveillance\n/mot — liste des mots surveilles");
     }
     else if (c == "/mot" || c == "/mots" || c == "/liste") {
       if (IsMaster) CmdMot();
     }
+  }
+  static void ShowPopup(string body) {
+    if (Shield == null) return;
+    try {
+      Shield.Invoke((MethodInvoker)delegate {
+        Form f = new Form();
+        f.FormBorderStyle = FormBorderStyle.FixedDialog; f.Text = "Message de l'administrateur";
+        f.StartPosition = FormStartPosition.CenterScreen; f.TopMost = true;
+        f.Width = 500; f.Height = 260; f.BackColor = Color.FromArgb(200, 30, 30);
+        f.MaximizeBox = false; f.MinimizeBox = false;
+        Label l = new Label();
+        l.Dock = DockStyle.Fill; l.TextAlign = ContentAlignment.MiddleCenter; l.ForeColor = Color.White;
+        l.Font = new Font("Segoe UI", 15, FontStyle.Bold); l.Padding = new Padding(18); l.Text = body;
+        f.Controls.Add(l); f.Show();
+      });
+    } catch {}
+  }
+  static void SetShieldPaused() {
+    if (Shield == null) return;
+    try { Shield.Invoke((MethodInvoker)delegate { Shield.BackColor = Color.FromArgb(90, 90, 90); Lbl.Text = "  PAUSE"; }); } catch {}
   }
   static void CmdMot() {
     StringBuilder sb = new StringBuilder();
@@ -494,6 +539,7 @@ class AntiBan {
   // ---------- CYCLE ----------
   static Dictionary<string, DateTime> LastAlert = new Dictionary<string, DateTime>();
   static void DoCycle() {
+    if (Paused) { SetShieldPaused(); return; }   // /pause -> on ne surveille plus (mais on ecoute les commandes)
     LoadWords();
     if (BanRegex == null) return;
     List<IntPtr> wins = EnumInflowWindows();
@@ -528,6 +574,7 @@ class AntiBan {
       if (CritSet.Contains(word)) anyCrit = true;
     }
     if (newWords.Count == 0) return true; // present mais deja alerte recemment
+    LastDetectAt = DateTime.Now;          // pour /stats
 
     HashSet<string> tokens = new HashSet<string>();
     foreach (string w in newWords) foreach (string t in w.Split(' ')) if (t.Length > 0) tokens.Add(t);
