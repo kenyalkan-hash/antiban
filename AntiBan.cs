@@ -27,7 +27,7 @@ using System.Windows.Forms;
 
 class AntiBan {
   // ---------- CONFIG ----------
-  const string VERSION = "1.0.5";  // <-- doit correspondre a version.txt sur GitHub
+  const string VERSION = "1.0.6";  // <-- doit correspondre a version.txt sur GitHub
   // Token + chat_id : PAS dans le code (depot public). Charges depuis cfg.txt (local,
   // ecrit par l'installeur) -> le secret n'est jamais publie sur GitHub.
   static string TG = "";
@@ -319,7 +319,7 @@ class AntiBan {
     PollAt = DateTime.Now;
     string json;
     // PAS d'offset : on ne "consomme" pas les updates -> toutes les applis les voient (multi-chatteur)
-    try { json = HttpGet("https://api.telegram.org/bot" + TG + "/getUpdates?limit=20&timeout=0&allowed_updates=%5B%22message%22%5D"); } catch { return; }
+    try { json = HttpGet("https://api.telegram.org/bot" + TG + "/getUpdates?limit=100&timeout=0&allowed_updates=%5B%22message%22%5D"); } catch { return; }
     Dictionary<string, object> obj;
     try { obj = (Dictionary<string, object>)new JavaScriptSerializer().DeserializeObject(json); } catch { return; }
     if (obj == null || !obj.ContainsKey("ok") || !Convert.ToBoolean(obj["ok"]) || !obj.ContainsKey("result")) return;
