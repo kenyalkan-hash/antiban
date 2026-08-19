@@ -27,7 +27,7 @@ using System.Windows.Forms;
 
 class AntiBan {
   // ---------- CONFIG ----------
-  const string VERSION = "1.0.4";  // <-- doit correspondre a version.txt sur GitHub
+  const string VERSION = "1.0.5";  // <-- doit correspondre a version.txt sur GitHub
   // Token + chat_id : PAS dans le code (depot public). Charges depuis cfg.txt (local,
   // ecrit par l'installeur) -> le secret n'est jamais publie sur GitHub.
   static string TG = "";
@@ -129,7 +129,12 @@ class AntiBan {
     StringBuilder sb2 = new StringBuilder();
     foreach (char c in s) if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark) sb2.Append(c);
     s = Regex.Replace(sb2.ToString(), "[^a-z0-9]+", " ");
-    return Regex.Replace(s, "\\s+", " ").Trim();
+    s = Regex.Replace(s, "\\s+", " ").Trim();
+    // anti-obfuscation : replie les lettres repetees (violll->viol, putainnn->putain,
+    // pluSSSieurs ee/ll/ss -> une seule). Applique aux mots ET au texte lu -> matching insensible au doublement.
+    StringBuilder sb3 = new StringBuilder(); char prev = '\0';
+    foreach (char ch in s) { if (ch != prev) sb3.Append(ch); prev = ch; }
+    return sb3.ToString();
   }
 
   // ---------- LISTE DE MOTS (auto-update GitHub) ----------
